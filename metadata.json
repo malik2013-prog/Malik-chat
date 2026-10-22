@@ -1,0 +1,6 @@
+{
+  "name": "Mail Chat",
+  "description": "Next-gen secure messenger with Ghost Mode, E2EE encryption, anti-delete local archive, voice transcription, AI assistant, and admin control.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
