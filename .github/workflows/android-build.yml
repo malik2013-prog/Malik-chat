@@ -46,17 +46,17 @@ jobs:
           gradle testDebugUnitTest --no-daemon --stacktrace
         fi
 
-    - name: Assemble Debug APK
+    - name: Assemble Release APK
       run: |
         if [ -f "./gradlew" ]; then
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleRelease --no-daemon --stacktrace
         else
-          gradle assembleDebug --no-daemon --stacktrace
+          gradle assembleRelease --no-daemon --stacktrace
         fi
 
-    - name: Upload Debug APK Artifact
-      uses: actions/actions/upload-artifact@v4
+    - name: Upload Release APK Artifact
+      uses: actions/upload-artifact@v4
       with:
-        name: nail-chat-debug-apk
-        path: app/build/outputs/apk/debug/*.apk
+        name: mail-chat-release-apk
+        path: app/build/outputs/apk/release/*.apk
         retention-days: 14
