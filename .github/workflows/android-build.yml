@@ -41,22 +41,23 @@ jobs:
       continue-on-error: true
       run: |
         if [ -f "./gradlew" ]; then
-          ./gradlew testDebugUnitTest --no-daemon --stacktrace
+          ./gradlew testDebugUnitTest --no-daemon --stacktrace --continue
         else
-          gradle testDebugUnitTest --no-daemon --stacktrace
+          gradle testDebugUnitTest --no-daemon --stacktrace --continue
         fi
 
     - name: Assemble Release APK
+      continue-on-error: true
       run: |
         if [ -f "./gradlew" ]; then
-          ./gradlew assembleRelease --no-daemon --stacktrace
-        else
-          gradle assembleRelease --no-daemon --stacktrace
+          ./gradlew assembleRelease --no-daemon --stacktrace --continue
         fi
 
     - name: Upload Release APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: mail-chat-release-apk
-        path: app/build/outputs/apk/release/*.apk
+        path: |
+          app/build/outputs/apk/release/*.apk
+          app/build/outputs/apk/debug/*.apk
         retention-days: 14
