@@ -56,6 +56,8 @@ val CyberTextMuted = AyuTextMuted
 val StealthGhostEmerald = AyuGreenPrimary
 val GhostDangerRed = AyuGhostBadgeRed
 val NeonViolet = Color(0xFFA855F7)
+val NeonPink = Color(0xFFFF2D55)
+val CyberBackground = AyuDarkBackground
 val VerifiedBadgeBlue = Color(0xFF229ED9)
 
 val BubbleGhostBorder = AyuGhostBadgeRed.copy(alpha = 0.4f)

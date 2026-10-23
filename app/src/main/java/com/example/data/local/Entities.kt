@@ -22,6 +22,8 @@ data class MessageEntity(
   val voiceDurationSeconds: Int = 0,
   val voiceWaveformCsv: String = "",
   val voiceTranscription: String? = null,
+  val mediaUri: String? = null,
+  val isRoundVideo: Boolean = false,
   val translatedText: String? = null,
   val replyToId: String? = null,
   val replyToSnippet: String? = null

@@ -228,9 +228,16 @@ class ChatRepository(
   }
 
   // Send an encrypted Voice Message
-  suspend fun sendVoiceMessage(chatId: String, recipientId: String, durationSeconds: Int, waveform: List<Float>) {
+  suspend fun sendVoiceMessage(
+    chatId: String,
+    recipientId: String,
+    durationSeconds: Int,
+    waveform: List<Float>,
+    mediaUri: String? = null,
+    transcription: String? = null
+  ) {
     val key = E2EECryptoEngine.deriveDeterministicChatKey(_currentUser.value.id, recipientId)
-    val audioDescriptor = "🎙️ Голосовое сообщение ($durationSeconds сек)"
+    val audioDescriptor = if (!transcription.isNullOrBlank()) "🎙️ $transcription" else "🎙️ Голосовое сообщение ($durationSeconds сек)"
     val encrypted = E2EECryptoEngine.encrypt(audioDescriptor, key)
     val msgId = "voice_${UUID.randomUUID().toString().take(12)}"
     val waveformCsv = waveform.joinToString(",") { "%.2f".format(it) }
@@ -249,10 +256,50 @@ class ChatRepository(
       isOutgoing = true,
       deliveryStatus = DeliveryStatus.SENT.name,
       voiceDurationSeconds = durationSeconds,
-      voiceWaveformCsv = waveformCsv
+      voiceWaveformCsv = waveformCsv,
+      voiceTranscription = transcription,
+      mediaUri = mediaUri,
+      isRoundVideo = false
     )
     messageDao.insertMessage(entity)
     chatDao.updateLastMessage(chatId, audioDescriptor, System.currentTimeMillis())
+  }
+
+  // Send Video Note (Round video) or Camera Photo
+  suspend fun sendMediaMessage(
+    chatId: String,
+    recipientId: String,
+    mediaUri: String,
+    isRoundVideo: Boolean = false,
+    caption: String = ""
+  ) {
+    val key = E2EECryptoEngine.deriveDeterministicChatKey(_currentUser.value.id, recipientId)
+    val descriptor = when {
+      isRoundVideo -> "🎥 Круглое видеосообщение"
+      caption.isNotBlank() -> "📷 $caption"
+      else -> "📷 Фотография"
+    }
+    val encrypted = E2EECryptoEngine.encrypt(descriptor, key)
+    val msgId = if (isRoundVideo) "vid_${UUID.randomUUID().toString().take(12)}" else "photo_${UUID.randomUUID().toString().take(12)}"
+
+    val entity = MessageEntity(
+      id = msgId,
+      chatId = chatId,
+      senderId = _currentUser.value.id,
+      senderName = _currentUser.value.displayName,
+      senderAvatar = _currentUser.value.avatarUrl,
+      text = descriptor,
+      ciphertext = encrypted.ciphertextBase64,
+      nonceHex = encrypted.nonceHex,
+      messageType = MessageType.MEDIA.name,
+      timestamp = System.currentTimeMillis(),
+      isOutgoing = true,
+      deliveryStatus = DeliveryStatus.SENT.name,
+      mediaUri = mediaUri,
+      isRoundVideo = isRoundVideo
+    )
+    messageDao.insertMessage(entity)
+    chatDao.updateLastMessage(chatId, descriptor, System.currentTimeMillis())
   }
 
   // Peer Simulators for interactive demonstration in applet
@@ -582,6 +629,8 @@ class ChatRepository(
       voiceDurationSeconds = voiceDurationSeconds,
       voiceWaveform = waveform,
       voiceTranscription = voiceTranscription,
+      mediaUri = mediaUri,
+      isRoundVideo = isRoundVideo,
       translatedText = translatedText,
       replyToId = replyToId,
       replyToSnippet = replyToSnippet

@@ -49,6 +49,8 @@ data class Message(
   val voiceDurationSeconds: Int = 0,
   val voiceWaveform: List<Float> = emptyList(),
   val voiceTranscription: String? = null,
+  val mediaUri: String? = null,
+  val isRoundVideo: Boolean = false,
   val translatedText: String? = null,
   val replyToId: String? = null,
   val replyToSnippet: String? = null

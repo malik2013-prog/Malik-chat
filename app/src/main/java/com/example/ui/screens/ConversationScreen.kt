@@ -1,6 +1,18 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.rotate
+import com.example.ui.components.CameraCaptureDialog
+import com.example.ui.components.CameraMode
+import com.example.ui.components.CircularVideoBubble
+import com.example.ui.components.PhotoBubble
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -31,6 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -47,6 +60,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -99,6 +113,7 @@ import com.example.ui.theme.CyberTextPrimary
 import com.example.ui.theme.CyberTextSecondary
 import com.example.ui.theme.GhostDangerRed
 import com.example.ui.theme.NeonViolet
+import com.example.ui.theme.NeonPink
 import com.example.ui.theme.StealthGhostEmerald
 import com.example.ui.theme.VerifiedBadgeBlue
 import com.example.ui.viewmodel.ChatViewModel
@@ -122,6 +137,8 @@ fun ConversationScreen(
   val isAiLoading by viewModel.isAiLoading.collectAsState()
   val isRecordingVoice by viewModel.isRecordingVoice.collectAsState()
   val recordingDuration by viewModel.recordingDuration.collectAsState()
+  val liveWaveform by viewModel.liveWaveform.collectAsState()
+  val liveTranscript by viewModel.liveTranscript.collectAsState()
   val replyingTo by viewModel.replyingTo.collectAsState()
 
   val currentChat = allChats.find { it.id == chatId }
@@ -131,6 +148,22 @@ fun ConversationScreen(
   var isMenuExpanded by remember { mutableStateOf(false) }
   var isEmojiPickerOpen by remember { mutableStateOf(false) }
   var activeReactionEmoji by remember { mutableStateOf<String?>(null) }
+  var isCameraDialogOpen by remember { mutableStateOf(false) }
+  var cameraMode by remember { mutableStateOf(CameraMode.CIRCULAR_VIDEO_NOTE) }
+  var isCameraModeToggled by remember { mutableStateOf(false) } // false = Mic, true = Camera
+
+  val context = LocalContext.current
+  val permissionLauncher = rememberLauncherForActivityResult(
+    ActivityResultContracts.RequestMultiplePermissions()
+  ) { perms ->
+    if (perms[Manifest.permission.RECORD_AUDIO] == true && !isCameraModeToggled) {
+      viewModel.startVoiceRecording()
+    }
+    if (perms[Manifest.permission.CAMERA] == true && isCameraModeToggled) {
+      isCameraDialogOpen = true
+    }
+  }
+
   val listState = rememberLazyListState()
   val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
   val clipboardManager = LocalClipboardManager.current
@@ -481,6 +514,52 @@ fun ConversationScreen(
         }
       }
 
+      // Live Speech-to-Text Transcription HUD
+      AnimatedVisibility(
+        visible = isRecordingVoice && liveTranscript.isNotBlank(),
+        enter = fadeIn() + slideInVertically(initialOffsetY = { 20 }),
+        exit = fadeOut()
+      ) {
+        Box(
+          modifier = Modifier
+            .fillMaxWidth()
+            .background(CyberDarkSurface)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+        ) {
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .clip(RoundedCornerShape(12.dp))
+              .background(NeonViolet.copy(alpha = 0.2f))
+              .border(1.dp, NeonViolet.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+              .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Icon(
+              imageVector = Icons.Default.AutoAwesome,
+              contentDescription = null,
+              tint = NeonViolet,
+              modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+              Text(
+                text = "Распознавание речи:",
+                fontSize = 10.sp,
+                color = NeonViolet,
+                fontWeight = FontWeight.Bold
+              )
+              Text(
+                text = liveTranscript,
+                fontSize = 13.sp,
+                color = CyberTextPrimary,
+                maxLines = 2
+              )
+            }
+          }
+        }
+      }
+
       // Bottom Input Bar
       Row(
         modifier = Modifier
@@ -490,7 +569,7 @@ fun ConversationScreen(
         verticalAlignment = Alignment.CenterVertically
       ) {
         if (isRecordingVoice) {
-          // Voice Recording in Progress UI
+          // Voice Recording in Progress UI with Live Waveform
           Row(
             modifier = Modifier
               .weight(1f)
@@ -498,7 +577,7 @@ fun ConversationScreen(
               .clip(RoundedCornerShape(24.dp))
               .background(GhostDangerRed.copy(alpha = 0.15f))
               .border(1.dp, GhostDangerRed.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-              .padding(horizontal = 16.dp),
+              .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
           ) {
@@ -509,25 +588,47 @@ fun ConversationScreen(
                   .clip(CircleShape)
                   .background(GhostDangerRed)
               )
-              Spacer(modifier = Modifier.width(8.dp))
+              Spacer(modifier = Modifier.width(6.dp))
               Text(
-                text = "Запись: %02d:%02d".format(recordingDuration / 60, recordingDuration % 60),
+                text = "%02d:%02d".format(recordingDuration / 60, recordingDuration % 60),
                 color = GhostDangerRed,
                 fontWeight = FontWeight.Bold,
-                fontSize = 13.sp
+                fontSize = 12.sp
               )
             }
 
-            Text(
-              text = "Отпустите для отправки",
-              color = CyberTextSecondary,
-              fontSize = 11.sp
-            )
+            // Live Waveform visualizer
+            Row(
+              modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp),
+              horizontalArrangement = Arrangement.spacedBy(2.dp),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              val bars = if (liveWaveform.isNotEmpty()) liveWaveform.takeLast(16) else listOf(0.3f, 0.5f, 0.8f, 0.4f, 0.7f, 0.2f, 0.6f)
+              bars.forEach { amp ->
+                Box(
+                  modifier = Modifier
+                    .weight(1f)
+                    .height((amp * 28).coerceAtLeast(4f).dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(CyberCyan)
+                )
+              }
+            }
+
+            // Cancel action
+            IconButton(
+              onClick = { viewModel.cancelVoiceRecording() },
+              modifier = Modifier.size(28.dp)
+            ) {
+              Icon(Icons.Default.Close, contentDescription = "Отмена", tint = CyberTextMuted, modifier = Modifier.size(16.dp))
+            }
           }
 
           Spacer(modifier = Modifier.width(8.dp))
 
-          // Stop / Send voice button
+          // Finish & Send Voice Button
           Box(
             modifier = Modifier
               .size(46.dp)
@@ -536,7 +637,7 @@ fun ConversationScreen(
               .clickable { viewModel.finishVoiceRecordingAndSend() },
             contentAlignment = Alignment.Center
           ) {
-            Icon(Icons.Default.Stop, contentDescription = "Отправить голос", tint = Color.White)
+            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить голос", tint = Color.White, modifier = Modifier.size(20.dp))
           }
         } else {
           // Apple Emoji toggle button
@@ -549,6 +650,30 @@ fun ConversationScreen(
             contentAlignment = Alignment.Center
           ) {
             Text(text = "😀", fontSize = 21.sp)
+          }
+
+          Spacer(modifier = Modifier.width(6.dp))
+
+          // Quick Camera Photo Button
+          Box(
+            modifier = Modifier
+              .size(42.dp)
+              .clip(CircleShape)
+              .background(CyberDarkCard)
+              .clickable {
+                val hasCam = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                if (hasCam) {
+                  cameraMode = CameraMode.PHOTO_SNAP
+                  isCameraDialogOpen = true
+                } else {
+                  isCameraModeToggled = true
+                  cameraMode = CameraMode.PHOTO_SNAP
+                  permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA))
+                }
+              },
+            contentAlignment = Alignment.Center
+          ) {
+            Icon(Icons.Default.CameraAlt, contentDescription = "Камера", tint = CyberCyan, modifier = Modifier.size(20.dp))
           }
 
           Spacer(modifier = Modifier.width(6.dp))
@@ -594,21 +719,50 @@ fun ConversationScreen(
               )
             }
           } else {
-            // Record Voice button
+            // Morphing Toggle Button: Mic (🎙) <-> Circular Video Note (🎥)
+            val rotationAngle by animateFloatAsState(
+              targetValue = if (isCameraModeToggled) 360f else 0f,
+              label = "iconRotation"
+            )
+
             Box(
               modifier = Modifier
                 .size(46.dp)
                 .clip(CircleShape)
-                .background(NeonViolet)
-                .clickable { viewModel.startVoiceRecording() },
+                .background(if (isCameraModeToggled) NeonPink else NeonViolet)
+                .clickable {
+                  isCameraModeToggled = !isCameraModeToggled
+                },
               contentAlignment = Alignment.Center
             ) {
-              Icon(
-                imageVector = Icons.Default.Mic,
-                contentDescription = "Голосовое сообщение",
-                tint = Color.White,
-                modifier = Modifier.size(22.dp)
-              )
+              IconButton(
+                onClick = {
+                  if (isCameraModeToggled) {
+                    val hasCam = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                    if (hasCam) {
+                      cameraMode = CameraMode.CIRCULAR_VIDEO_NOTE
+                      isCameraDialogOpen = true
+                    } else {
+                      permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
+                    }
+                  } else {
+                    val hasAudio = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    if (hasAudio) {
+                      viewModel.startVoiceRecording()
+                    } else {
+                      permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                    }
+                  }
+                },
+                modifier = Modifier.rotate(rotationAngle)
+              ) {
+                Icon(
+                  imageVector = if (isCameraModeToggled) Icons.Default.Videocam else Icons.Default.Mic,
+                  contentDescription = if (isCameraModeToggled) "Круглое видео" else "Голосовое сообщение",
+                  tint = Color.White,
+                  modifier = Modifier.size(22.dp)
+                )
+              }
             }
           }
         }
@@ -643,6 +797,22 @@ fun ConversationScreen(
       FloatingReactionBurst(
         emoji = emoji,
         onAnimationEnd = { activeReactionEmoji = null }
+      )
+    }
+
+    // CameraX Circular Video & Photo Capture Modal
+    if (isCameraDialogOpen) {
+      CameraCaptureDialog(
+        initialMode = cameraMode,
+        onDismiss = { isCameraDialogOpen = false },
+        onCapturedPhoto = { photoUri ->
+          viewModel.sendCameraPhoto(photoUri)
+          isCameraDialogOpen = false
+        },
+        onCapturedVideoNote = { videoUri, duration ->
+          viewModel.sendVideoNote(videoUri, duration)
+          isCameraDialogOpen = false
+        }
       )
     }
   }
@@ -758,12 +928,24 @@ private fun MessageBubbleRow(
         }
 
         // Message Body
-        when (message.messageType) {
-          MessageType.VOICE -> {
+        when {
+          message.isRoundVideo -> {
+            CircularVideoBubble(
+              message = message,
+              isOutgoing = message.isOutgoing
+            )
+          }
+          message.messageType == MessageType.VOICE -> {
             VoiceMessageBubble(
               message = message,
               isOutgoing = message.isOutgoing,
               onTranscribeClick = onTranscribeVoice
+            )
+          }
+          message.messageType == MessageType.MEDIA -> {
+            PhotoBubble(
+              message = message,
+              isOutgoing = message.isOutgoing
             )
           }
           else -> {

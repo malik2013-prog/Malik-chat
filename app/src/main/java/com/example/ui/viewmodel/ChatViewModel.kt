@@ -11,6 +11,7 @@ import com.example.model.Chat
 import com.example.model.GhostSettings
 import com.example.model.Message
 import com.example.model.User
+import com.example.media.AudioRecordingManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -96,13 +97,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
   private val _smartReplies = MutableStateFlow<List<String>>(emptyList())
   val smartReplies: StateFlow<List<String>> = _smartReplies.asStateFlow()
 
-  // Voice recording state
-  private val _isRecordingVoice = MutableStateFlow(false)
-  val isRecordingVoice: StateFlow<Boolean> = _isRecordingVoice.asStateFlow()
-
-  private val _recordingDuration = MutableStateFlow(0)
-  val recordingDuration: StateFlow<Int> = _recordingDuration.asStateFlow()
-  private var voiceTimerJob: Job? = null
+  // Voice recording & live transcription manager
+  val audioRecordingManager = AudioRecordingManager(application)
+  val isRecordingVoice: StateFlow<Boolean> = audioRecordingManager.isRecording
+  val recordingDuration: StateFlow<Int> = audioRecordingManager.recordingDurationSeconds
+  val liveWaveform: StateFlow<List<Float>> = audioRecordingManager.liveAmplitudes
+  val liveTranscript: StateFlow<String> = audioRecordingManager.partialTranscript
 
   // Reply state
   private val _replyingTo = MutableStateFlow<Message?>(null)
@@ -181,38 +181,60 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   fun startVoiceRecording() {
-    _isRecordingVoice.value = true
-    _recordingDuration.value = 0
-    voiceTimerJob?.cancel()
-    voiceTimerJob = viewModelScope.launch {
-      while (_isRecordingVoice.value) {
-        delay(1000)
-        _recordingDuration.value += 1
-      }
-    }
+    audioRecordingManager.startRecording()
   }
 
   fun finishVoiceRecordingAndSend() {
-    val duration = _recordingDuration.value.coerceAtLeast(2)
-    _isRecordingVoice.value = false
-    voiceTimerJob?.cancel()
-
+    val result = audioRecordingManager.stopRecording()
     val chatId = _activeChatId.value ?: return
     val currentChat = allChats.value.find { it.id == chatId }
     val recipientId = currentChat?.recipientUser?.id ?: "usr_peer_default"
 
-    // Generate dynamic waveform
-    val waveform = List(16) { Random.nextFloat().coerceIn(0.15f, 0.95f) }
-
     viewModelScope.launch {
-      repository.sendVoiceMessage(chatId, recipientId, duration, waveform)
+      repository.sendVoiceMessage(
+        chatId = chatId,
+        recipientId = recipientId,
+        durationSeconds = result.durationSeconds,
+        waveform = result.waveform,
+        mediaUri = result.fileUri,
+        transcription = result.transcript
+      )
     }
   }
 
   fun cancelVoiceRecording() {
-    _isRecordingVoice.value = false
-    voiceTimerJob?.cancel()
-    _recordingDuration.value = 0
+    audioRecordingManager.cancelRecording()
+  }
+
+  fun sendCameraPhoto(photoUri: String, caption: String = "") {
+    val chatId = _activeChatId.value ?: return
+    val currentChat = allChats.value.find { it.id == chatId }
+    val recipientId = currentChat?.recipientUser?.id ?: "usr_peer_default"
+
+    viewModelScope.launch {
+      repository.sendMediaMessage(
+        chatId = chatId,
+        recipientId = recipientId,
+        mediaUri = photoUri,
+        isRoundVideo = false,
+        caption = caption
+      )
+    }
+  }
+
+  fun sendVideoNote(videoUri: String, durationSeconds: Int) {
+    val chatId = _activeChatId.value ?: return
+    val currentChat = allChats.value.find { it.id == chatId }
+    val recipientId = currentChat?.recipientUser?.id ?: "usr_peer_default"
+
+    viewModelScope.launch {
+      repository.sendMediaMessage(
+        chatId = chatId,
+        recipientId = recipientId,
+        mediaUri = videoUri,
+        isRoundVideo = true
+      )
+    }
   }
 
   fun setReply(message: Message?) {

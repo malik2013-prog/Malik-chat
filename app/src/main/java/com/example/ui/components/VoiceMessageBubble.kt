@@ -1,5 +1,8 @@
 package com.example.ui.components
 
+import android.media.MediaPlayer
+import android.os.Build
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -23,11 +26,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -49,7 +51,10 @@ import com.example.ui.theme.CyberTextMuted
 import com.example.ui.theme.CyberTextPrimary
 import com.example.ui.theme.CyberTextSecondary
 import com.example.ui.theme.NeonViolet
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 fun VoiceMessageBubble(
@@ -61,11 +66,68 @@ fun VoiceMessageBubble(
   var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
   val progress = remember { Animatable(0f) }
   val scope = rememberCoroutineScope()
+  var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
 
-  // Animate playback progress
+  DisposableEffect(Unit) {
+    onDispose {
+      try {
+        mediaPlayer?.release()
+      } catch (_: Exception) {}
+    }
+  }
+
+  // Handle Playback
+  fun startPlayback() {
+    val fileUri = message.mediaUri
+    if (!fileUri.isNullOrBlank() && File(fileUri).exists()) {
+      try {
+        mediaPlayer?.release()
+        val player = MediaPlayer().apply {
+          setDataSource(fileUri)
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            playbackParams = playbackParams.setSpeed(playbackSpeed)
+          }
+          prepare()
+          start()
+        }
+        mediaPlayer = player
+        isPlaying = true
+
+        player.setOnCompletionListener {
+          isPlaying = false
+          scope.launch { progress.snapTo(0f) }
+        }
+
+        scope.launch {
+          val totalMs = player.duration.toFloat().coerceAtLeast(100f)
+          while (isActive && isPlaying && mediaPlayer == player) {
+            delay(50)
+            val currentMs = try { player.currentPosition.toFloat() } catch (_: Exception) { 0f }
+            progress.snapTo((currentMs / totalMs).coerceIn(0f, 1f))
+          }
+        }
+      } catch (e: Exception) {
+        Log.e("VoiceBubble", "Failed playing audio file", e)
+        // Fallback to simulated animation
+        isPlaying = true
+      }
+    } else {
+      // Simulated animation playback
+      isPlaying = true
+    }
+  }
+
+  fun stopPlayback() {
+    try {
+      mediaPlayer?.pause()
+    } catch (_: Exception) {}
+    isPlaying = false
+  }
+
+  // Simulated fallback animation if no real player
   LaunchedEffect(isPlaying) {
-    if (isPlaying) {
-      val durationMs = ((message.voiceDurationSeconds * 1000) / playbackSpeed).toInt().coerceAtLeast(1000)
+    if (isPlaying && mediaPlayer == null) {
+      val durationMs = ((message.voiceDurationSeconds * 1000) / playbackSpeed).toInt().coerceAtLeast(1500)
       val remainingFraction = 1f - progress.value
       val animTime = (durationMs * remainingFraction).toInt()
       progress.animateTo(
@@ -96,12 +158,12 @@ fun VoiceMessageBubble(
           .background(if (isOutgoing) CyberCyan else NeonViolet)
           .clickable {
             if (isPlaying) {
-              isPlaying = false
+              stopPlayback()
             } else {
               if (progress.value >= 1f) {
                 scope.launch { progress.snapTo(0f) }
               }
-              isPlaying = true
+              startPlayback()
             }
           },
         contentAlignment = Alignment.Center
@@ -175,6 +237,11 @@ fun VoiceMessageBubble(
                   1.5f -> 2.0f
                   else -> 1.0f
                 }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                  try {
+                    mediaPlayer?.playbackParams = mediaPlayer?.playbackParams?.setSpeed(playbackSpeed) ?: return@clickable
+                  } catch (_: Exception) {}
+                }
               }
               .padding(horizontal = 6.dp, vertical = 2.dp)
           ) {
@@ -210,7 +277,7 @@ fun VoiceMessageBubble(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-              text = "AI Транскрипция",
+              text = "Транскрипция (Speech-to-Text)",
               fontSize = 10.sp,
               color = NeonViolet,
               fontWeight = FontWeight.Bold
